@@ -29,10 +29,10 @@ brain Brain;
 // Robot configuration code.
 inertial BrainInertial = inertial();
 distance Dist = distance(PORT2);
-motor FD = motor(PORT1, false);
-motor RD = motor(PORT6, false);
-motor LD = motor(PORT7, false);
-motor BD = motor(PORT12, false);
+motor FD = motor(PORT12, false);
+motor RD = motor(PORT7, false);
+motor LD = motor(PORT6, false);
+motor BD = motor(PORT1, false);
 controller Controller = controller();
 
 
@@ -43,16 +43,20 @@ bool RemoteControlCodeEnabled = true;
 
 #include "vex.h"
 using namespace vex;
-int axisA=0;//LV
-int axisB=0;//LH
-int axisC=0;//RV
-int axisD=0;//RH
-int orientX=0;//postorient
-int orientY=0;//postorient
-int spinV=0;//rightjoy
-int theta=0;
-
-
+double axisA=0;//LV
+double axisB=0;//LH
+double axisC=0;//RV
+double axisD=0;//RH
+double orientX=0;//postorient
+double orientY=0;//postorient
+double spinV=0;//rightjoy
+double theta;
+double xmm=0;
+double ymm=0;
+//give map dm res
+int ydmap[100][100];
+double tiempo=0;
+int cycles=0;
 
 // Create pathfinding as something done by the robot on keystroke
 
@@ -89,52 +93,96 @@ void motorset(){
   RD.spin(forward);
 }
 
-void fupcalibrater(){
-  while(true){
-    
+double arctangent(double y, double x){
+  if(x<0){
+    return atan(y/x)+M_PI;
+  }
+  else if(x==0){
+    if(y>0){return M_PI/2;}
+    else{return M_PI/-2;}
+  }
+  else{
+    return atan(y/x);
   }
 }
+double greatest(double orx,double ory,double spy){
+  double bigboy=0.0;
+  double ors[4]={-1*orx,orx,-1*ory,ory};
+  for(int index=0;index<4;index++){
+    if(fabs(ors[index]-spy)>fabs(bigboy)){
+      bigboy=ors[index];
+    }
+  }
+  return bigboy;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 int main() {
   motorset();
   BrainInertial.calibrate();
+  wait(5,seconds);
+  
   while(!Controller.ButtonFUp.pressing()){
-    wait(10,msec);
+    wait(1,msec);
   }
   BrainInertial.setHeading(0, degrees);
   BrainInertial.setRotation(0, degrees);
   while(true){
+    tiempo=Brain.Timer.value();
     axisA=Controller.AxisA.position();
     axisB=Controller.AxisB.position();
     axisC=Controller.AxisC.position();
     axisD=Controller.AxisD.position();
-    spinV=axisD;//BXAY
-    //0/0 witin atan.
-    //use some logic to better determine θ
-    if(axisB==0){
-      theta=0;
-    }
-    else{
-      theta=atan(axisA/axisB);  
-    }
-    orientX=sqrt(pow(axisB,2)+pow(axisA,2))*cos(theta-(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
-    orientY=sqrt(pow(axisB,2)+pow(axisA,2))*sin(theta-(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
+    spinV=axisD;//BXAYCR
+    theta=arctangent(axisA,axisB)+((M_PI*axisC)/(180*(100/(100-49.025)))); 
+    
+    orientX=sqrt(pow(axisB,2)+pow(axisA,2))/*magnitude*/ * cos(theta+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
+    orientY=sqrt(pow(axisB,2)+pow(axisA,2))/*magnitude*/ * sin(theta+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
     //naive field orient test:
     Brain.Screen.newLine();
 
-    Brain.Screen.print("%f",BrainInertial.orientation(yaw,degrees));
-
-    FD.setVelocity(orientX,percent);
-    BD.setVelocity(-orientX,percent);
-    RD.setVelocity(-orientY,percent);
-    LD.setVelocity(orientY,percent);
-    if(Controller.ButtonRUp.pressing()){
-      FD.setVelocity(100,percent);
-      BD.setVelocity(100,percent);
-      RD.setVelocity(100,percent);
-      LD.setVelocity(100,percent);
-      wait(10,msec);
+    Brain.Screen.print("X: %d",xmm);
+    Brain.Screen.print(" ");
+    Brain.Screen.print("Y: %d",ymm);
+    //orientX=axisB;
+    //orientY=axisA;
+    if(greatest(orientX,orientY,axisC)>100){
+      spinV=(100/greatest(orientX,orientY,axisC));
     }
+    else{
+      spinV=1;
+    }
+    FD.setVelocity((-orientX-axisC)*spinV,percent);
+    BD.setVelocity((orientX-axisC)*spinV,percent);
+    RD.setVelocity((orientY-axisC)*spinV,percent);
+    LD.setVelocity((-orientY-axisC)*spinV,percent);
+    cycles++;
+    xmm+=(254/60)*(Brain.Timer.value()-tiempo)*(orientX*spinV);
+    ymm+=(254/60)*(Brain.Timer.value()-tiempo)*(orientY*spinV);
   }
+ 
 
 }
