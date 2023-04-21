@@ -34,6 +34,11 @@ motor RD = motor(PORT7, false);
 motor LD = motor(PORT6, false);
 motor BD = motor(PORT1, false);
 controller Controller = controller();
+distance Dyst = distance(PORT8);
+motor armMotorA = motor(PORT5, true);
+motor armMotorB = motor(PORT11, false);
+motor_group arm = motor_group(armMotorA, armMotorB);
+
 
 
 
@@ -49,38 +54,42 @@ double axisC=0;//RV
 double axisD=0;//RH
 double orientX=0;//postorient
 double orientY=0;//postorient
-double spinV=0;//rightjoy
+double spinV=1;//rightjoy
 double theta;
-double xmm=0;
-double ymm=0;
+double xmm=5000;
+double ymm=5000;
 //give map dm res
-int ydmap[100][100];
+int map[100][100];//resolution of cm
 double tiempo=0;
 int cycles=0;
+double xoff=-140;
+double yoff=140;
+double occidentX=0;
+double occidentY=0;
+double occipitalX=0;
+double occipitalY=0;
+double icoordX=0;
+double icoordY=0;
+double start=0;
 
-// Create pathfinding as something done by the robot on keystroke
 
-// setMaxTorque(100,percent);
 
+
+
+//sets up motors
 void motorset(){
   //Stoptypes
   FD.setStopping(brake);
   LD.setStopping(brake);
   BD.setStopping(brake);
   RD.setStopping(brake);
-  //RG.setStopping(brake);
-  //LG.setStopping(brake);
-  //Load.setStopping(brake);
-  //Alt.setStopping(hold);
-  //Torquesets
+  arm.setStopping(hold);
+  
   FD.setMaxTorque(100,percent);
   LD.setMaxTorque(100,percent);
   BD.setMaxTorque(100,percent);
   RD.setMaxTorque(100,percent);
-  //RG.setMaxTorque(100,percent);
-  //LG.setMaxTorque(100,percent);
-  //Load.setMaxTorque(100,percent);
-  //Alt.setMaxTorque(100,percent);
+  Arm.setMaxTorque(100,percent);
   //Novelocity
   FD.setVelocity(0,percent);
   LD.setVelocity(0,percent);
@@ -93,18 +102,29 @@ void motorset(){
   RD.spin(forward);
 }
 
+
+
+
+//angle finder that works better than atan
 double arctangent(double y, double x){
   if(x<0){
-    return atan(y/x)+M_PI;
-  }
-  else if(x==0){
-    if(y>0){return M_PI/2;}
-    else{return M_PI/-2;}
-  }
-  else{
-    return atan(y/x);
+    return atan(y/x)+M_PI;}
+    else if(x==0){
+      if(y>0){
+        return M_PI/2;
+      }
+      else{
+        return M_PI/-2;
+      }
+    }
+    else{return atan(y/x);
   }
 }
+
+
+
+
+//returns greatest of raw motor outputs
 double greatest(double orx,double ory,double spy){
   double bigboy=0.0;
   double ors[4]={-1*orx,orx,-1*ory,ory};
@@ -119,19 +139,22 @@ double greatest(double orx,double ory,double spy){
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+//if near a bad point
+/*
+bool obstacle(double x,double y){
+  for(int fx=x-2;fx<=x+2;fx++){
+    for(int fy=y-2;fy<=y+2;fy++){
+      if(fx<0||fx>100||fy<0||fy>100){
+        return true;
+      }
+      if(map[fx][fy]!=0){
+        return true;
+      }
+    }
+  }
+  return false;
+}
+*/
 
 
 
@@ -141,48 +164,124 @@ double greatest(double orx,double ory,double spy){
 
 
 int main() {
+
+  //calibrating sensors and motors
   motorset();
   BrainInertial.calibrate();
   wait(5,seconds);
-  
+
+  //awaiting startup
   while(!Controller.ButtonFUp.pressing()){
     wait(1,msec);
   }
+
+  //setting rotation
   BrainInertial.setHeading(0, degrees);
   BrainInertial.setRotation(0, degrees);
+  start=Brain.Timer.value();
+  //main loop
   while(true){
+
+    //gets input angle plus offset
+    theta=arctangent(axisA,axisB)+((M_PI*axisC)/(180*(100/(100-49.025)))); 
+
+    //checks map vincinity
+    if(/*obstacle((int)(xmm/100),(int)(ymm/100))*/Dist.objectDistance(mm)<100||Dyst.objectDistance(mm)<100){
+      //stops until fup press
+      FD.stop();
+      BD.stop();
+      RD.stop();
+      LD.stop();
+      while(!Controller.ButtonFUp.pressing()){
+        wait(1,msec);
+      }
+      FD.setVelocity(0,percent);
+      LD.setVelocity(0,percent);
+      BD.setVelocity(0,percent);
+      RD.setVelocity(0,percent);
+      FD.spin(forward);
+      LD.spin(forward);
+      BD.spin(forward);
+      RD.spin(forward);
+    }
+
+    //sets start of cycle
     tiempo=Brain.Timer.value();
+
+    //sets axis readings as smaller vars
     axisA=Controller.AxisA.position();
     axisB=Controller.AxisB.position();
     axisC=Controller.AxisC.position();
     axisD=Controller.AxisD.position();
-    spinV=axisD;//BXAYCR
-    theta=arctangent(axisA,axisB)+((M_PI*axisC)/(180*(100/(100-49.025)))); 
-    
-    orientX=sqrt(pow(axisB,2)+pow(axisA,2))/*magnitude*/ * cos(theta+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
-    orientY=sqrt(pow(axisB,2)+pow(axisA,2))/*magnitude*/ * sin(theta+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
-    //naive field orient test:
-    Brain.Screen.newLine();
 
-    Brain.Screen.print("X: %d",xmm);
-    Brain.Screen.print(" ");
-    Brain.Screen.print("Y: %d",ymm);
-    //orientX=axisB;
-    //orientY=axisA;
+    //sets reoriented x and y motor output values
+    orientX=sqrt(pow(axisB,2)+pow(axisA,2)) * cos(theta+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
+    orientY=sqrt(pow(axisB,2)+pow(axisA,2)) * sin(theta+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
+    
+    //proportionalizes the motor outputs
     if(greatest(orientX,orientY,axisC)>100){
       spinV=(100/greatest(orientX,orientY,axisC));
     }
     else{
       spinV=1;
     }
+
+    //setVelocity
     FD.setVelocity((-orientX-axisC)*spinV,percent);
     BD.setVelocity((orientX-axisC)*spinV,percent);
     RD.setVelocity((orientY-axisC)*spinV,percent);
     LD.setVelocity((-orientY-axisC)*spinV,percent);
+    arm.setVelocity((int)(axisD/2));
+    //cycle update
     cycles++;
-    xmm+=(254/60)*(Brain.Timer.value()-tiempo)*(orientX*spinV);
-    ymm+=(254/60)*(Brain.Timer.value()-tiempo)*(orientY*spinV);
-  }
- 
 
+    //rpmp%=1.27
+    //rpsp%=1.27/60
+    //circ=200
+    //mm=circ*rpsp%*Δts*%out
+
+    //sets coords, and makes intermittant noises
+      xmm+=(200*(1.27/2840)*(Brain.Timer.value()-tiempo)*((axisB)*spinV));//accounts for gears
+      ymm+=(200*(1.27/2840)*(Brain.Timer.value()-tiempo)*((axisA)*spinV));
+      Brain.playNote(1+((cycles/7)%8),cycles%7,1);//A really annoying feature
+
+    //creates offset vector components for sensors-should be added to the sight vector to get cartesian sight coords
+    occidentX=sqrt(pow(xoff,2)+pow(yoff,2)) * cos(arctangent(yoff,xoff)+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
+    occidentY=sqrt(pow(xoff,2)+pow(yoff,2)) * sin(arctangent(yoff,xoff)+(M_PI*(BrainInertial.orientation(yaw,degrees)/180)));
+    
+    //plots obstacles
+    if(Dist.isObjectDetected()){
+
+      //splits sight vector into components
+      occipitalX=Dist.objectDistance(mm)*cos(M_PI*(BrainInertial.orientation(yaw,degrees))/180);
+      occipitalY=Dist.objectDistance(mm)*sin(M_PI*(BrainInertial.orientation(yaw,degrees))/180);
+
+      //gets coordinates of the obstacle
+      icoordX=occipitalX+occidentX+xmm;
+      icoordY=occipitalY+occidentY+ymm;
+
+      //if inbounds, plot
+      if(!(icoordX>10000||icoordX<0||icoordY>10000||icoordY<0)){
+        map[(int)(icoordX/100)][(int)(icoordY/100)]=1;
+      }
+    }
+
+    if(Dyst.isObjectDetected()){
+
+      //splits sight vector into components
+      occipitalX=-1*Dyst.objectDistance(mm)*cos(M_PI*(BrainInertial.orientation(yaw,degrees))/180);
+      occipitalY=-1*Dyst.objectDistance(mm)*sin(M_PI*(BrainInertial.orientation(yaw,degrees))/180);
+      
+      //gets coordinates of the obstacle
+      icoordX=occipitalX-occidentX+xmm;
+      icoordY=occipitalY-occidentY+ymm;
+
+      //if inbounds, plot
+      if(!(icoordX>10000||icoordX<0||icoordY>10000||icoordY<0)){
+        map[(int)(icoordX/100)][(int)(icoordY/100)]=1;
+      }
+    }
+    Brain.Screen.print("%f",xmm);
+    Brain.Screen.newLine();
+  }
 }
